@@ -3060,6 +3060,11 @@ function handleDragEnd(event) {
     height: 240px;
 }
 
+/* 分享广场的卡片高度 */
+.file-card:has(.card-sharer) {
+    height: 270px;
+}
+
 .file-card:hover {
     box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
     transform: translateY(-4px);
