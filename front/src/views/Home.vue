@@ -382,7 +382,7 @@
                                 </div>
                                 <!-- 图片缩略图 -->
                                 <div v-else-if="isImage(item)" class="image-thumbnail">
-                                    <el-image :src="item.url" fit="cover" style="width: 100%; height: 100%;"
+                                    <el-image :src="item.thumbnailUrl || item.url" fit="cover" style="width: 100%; height: 100%;"
                                         loading="lazy" :hide-on-click-modal="true">
                                         <template #error>
                                             <div class="image-error">
@@ -400,8 +400,9 @@
                                 </div>
                                 <!-- 视频缩略图 -->
                                 <div v-else-if="isVideo(item)" class="video-thumbnail">
-                                    <video :src="item.url" style="width: 100%; height: 100%; object-fit: cover;"
-                                        @error="handleVideoError"></video>
+                                    <img v-if="item.thumbnailUrl" :src="item.thumbnailUrl" 
+                                        style="width: 100%; height: 100%; object-fit: cover;"
+                                        @error="(e) => e.target.style.display = 'none'" />
                                     <div class="video-play-icon">
                                         <el-icon :size="40" color="#fff">
                                             <VideoPlay />
@@ -841,7 +842,7 @@ import {
 } from '@element-plus/icons-vue'
 import { useFileStore } from '@/stores/file'
 import { useUserStore } from '@/stores/user'
-import { uploadFileToOSS, deleteFileFromOSS } from '@/utils/oss'
+import { uploadFileToOSS, deleteFileFromOSS, getThumbnailUrl } from '@/utils/oss'
 import { shareApi } from '@/api'
 import { useRouter } from 'vue-router'
 import FileIcon from '@/components/FileIcon.vue'
@@ -1085,7 +1086,23 @@ const filteredTableData = computed(() => {
 const paginatedData = computed(() => {
     const start = (currentPage.value - 1) * pageSize.value
     const end = start + pageSize.value
-    return filteredTableData.value.slice(start, end)
+    const slicedData = filteredTableData.value.slice(start, end)
+    
+    // 如果是卡片视图，为图片和视频添加缩略图URL
+    if (viewMode.value === 'card') {
+        return slicedData.map(item => {
+            if (item.type !== 'folder' && item.url) {
+                return {
+                    ...item,
+                    thumbnailUrl: getThumbnailUrl(item.url, { width: 200 }),
+                    originalUrl: item.url // 保留原始URL供预览使用
+                }
+            }
+            return item
+        })
+    }
+    
+    return slicedData
 })
 
 // 是否有激活的筛选条件
@@ -1846,7 +1863,8 @@ function handlePreview(row) {
     const ext = row.name.split('.').pop().toLowerCase()
     console.log('预览文件:', row.name, '扩展名:', ext)
     previewFile.value = row
-    previewUrl.value = row.url
+    // 优先使用原始URL，如果没有则使用普通URL
+    previewUrl.value = row.originalUrl || row.url
 
     if (['jpg', 'jpeg', 'png', 'gif', 'bmp', 'webp', 'ico', 'svg'].includes(ext)) {
         // 图片预览
@@ -2114,7 +2132,9 @@ function handleImageLoad(e) {
 
 // 下载文件
 function handleDownload(row) {
-    window.open(row.url, '_blank')
+    // 优先使用原始URL，如果没有则使用普通URL
+    const downloadUrl = row.originalUrl || row.url
+    window.open(downloadUrl, '_blank')
 }
 
 // 分享文件到广场
@@ -3223,12 +3243,15 @@ function handleDragEnd(event) {
     max-height: 75vh;
     position: relative;
     background-color: #f5f7fa;
+    overflow: hidden;
 }
 
 .text-preview-content {
     width: 100%;
     height: 100%;
-    overflow: auto;
+    max-height: 75vh;
+    overflow-y: auto;
+    overflow-x: auto;
     background-color: #282c34;
     border-radius: 4px;
     padding: 0;
@@ -3240,9 +3263,11 @@ function handleDragEnd(event) {
     font-family: 'Consolas', 'Monaco', 'Courier New', monospace;
     font-size: 14px;
     line-height: 1.6;
-    white-space: pre-wrap;
-    word-wrap: break-word;
+    white-space: pre;
+    word-wrap: normal;
+    overflow-x: auto;
     background-color: transparent !important;
+    color: #ffffff !important;
 }
 
 .text-preview-content code {
@@ -3250,6 +3275,7 @@ function handleDragEnd(event) {
     font-family: inherit;
     padding: 0 !important;
     background-color: transparent !important;
+    color: #ffffff !important;
 }
 
 .text-editor :deep(.el-textarea__inner) {

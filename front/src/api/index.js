@@ -1,7 +1,7 @@
 import axios from 'axios'
 
 const request = axios.create({
-  baseURL: '/api',
+  baseURL: import.meta.env.PROD ? 'http://120.48.51.185:6001/api' : '/api',
   timeout: 30000
 })
 
