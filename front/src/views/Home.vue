@@ -652,6 +652,7 @@
                 <div class="preview-info">
                     <p>文件名: {{ previewFile?.name }}</p>
                     <p>大小: {{ formatFileSize(previewFile?.size) }}</p>
+                    <p>创建时间: {{ formatDateFull(previewFile?.createdAt) }}</p>
                     <p v-if="imageDimensions.width && imageDimensions.height">
                         尺寸: {{ imageDimensions.width }} × {{ imageDimensions.height }}
                     </p>
@@ -662,12 +663,17 @@
         <!-- 视频预览对话框 -->
         <el-dialog v-model="showVideoPreview" title="视频预览" width="80%" top="2vh" @close="closePreview">
             <div class="video-preview-container">
-                <video :src="previewUrl" controls style="width: 100%; max-height: 70vh;" autoplay>
+                <video ref="videoPlayerRef" :src="previewUrl" controls style="width: 100%; max-height: 70vh;" autoplay
+                    @error="handleVideoError">
                     您的浏览器不支持视频播放
                 </video>
                 <div class="preview-info">
                     <p>文件名: {{ previewFile?.name }}</p>
                     <p>大小: {{ formatFileSize(previewFile?.size) }}</p>
+                    <p>创建时间: {{ formatDateFull(previewFile?.createdAt) }}</p>
+                    <p v-if="previewFile?.name.match(/\.(wmv|avi|flv)$/i)" class="preview-tip" style="color: #E6A23C;">
+                        ⚠️ 提示：该格式在浏览器中可能无法播放，建议下载后使用专业播放器观看
+                    </p>
                 </div>
             </div>
         </el-dialog>
@@ -699,6 +705,7 @@
                 <div class="preview-info">
                     <p>文件名: {{ previewFile?.name }}</p>
                     <p>大小: {{ formatFileSize(previewFile?.size) }}</p>
+                    <p>创建时间: {{ formatDateFull(previewFile?.createdAt) }}</p>
                     <p class="preview-tip">💡 提示：使用微软Office在线预览服务，支持Word、Excel、PPT、PDF格式</p>
                 </div>
             </template>
@@ -777,6 +784,7 @@
                 <div class="preview-info">
                     <p>文件名: {{ previewFile?.name }}</p>
                     <p>大小: {{ formatFileSize(previewFile?.size) }}</p>
+                    <p>创建时间: {{ formatDateFull(previewFile?.createdAt) }}</p>
                     <p>行数: {{ textContent.split('\n').length }}</p>
                     <p class="preview-tip">💡 提示：点击编辑按钮可以修改文件内容</p>
                 </div>
@@ -798,6 +806,7 @@
                 <div class="preview-info">
                     <p>文件名: {{ previewFile?.name }}</p>
                     <p>大小: {{ formatFileSize(previewFile?.size) }}</p>
+                    <p>创建时间: {{ formatDateFull(previewFile?.createdAt) }}</p>
                 </div>
             </div>
         </el-dialog>
@@ -878,9 +887,11 @@ const showRenameFolderDialog = ref(false)
 const previewUrl = ref('')
 const previewFile = ref(null)
 const previewImageRef = ref(null)
+const videoPlayerRef = ref(null)
 const audioPlayerRef = ref(null)
 const imageDimensions = ref({ width: 0, height: 0 })
 const uploadMode = ref('file') // 'file' 或 'folder'
+const isClosingPreview = ref(false) // 标记是否正在关闭预览
 const folderInputRef = ref(null)
 const imagePreviewStyle = ref({})
 const documentPreviewUrl = ref('')
@@ -1402,15 +1413,14 @@ function formatDate(dateString) {
     const days = Math.floor(hours / 24)
     const months = Math.floor(days / 30)
 
-    // 超过6个月，显示完整日期时间
-    if (months >= 6) {
+    // 超过1个月，显示完整日期时间
+    if (months >= 1) {
         const year = date.getFullYear()
-        const month = String(date.getMonth() + 1).padStart(2, '0')
-        const day = String(date.getDate()).padStart(2, '0')
+        const month = date.getMonth() + 1
+        const day = date.getDate()
         const hour = String(date.getHours()).padStart(2, '0')
         const minute = String(date.getMinutes()).padStart(2, '0')
-        const second = String(date.getSeconds()).padStart(2, '0')
-        return `${year}-${month}-${day} ${hour}:${minute}:${second}`
+        return `${year}年${month}月${day}日 ${hour}:${minute}`
     }
     // 刚刚（1分钟内）
     else if (seconds < 60) {
@@ -1428,18 +1438,24 @@ function formatDate(dateString) {
     else if (days === 1) {
         return '昨天'
     }
-    // X天前（7天内）
-    else if (days < 7) {
+    // X天前（30天内）
+    else if (days < 30) {
         return `${days}天前`
     }
-    // 本周/上周（14天内）
-    else if (days < 14) {
-        return '上周'
-    }
-    // X个月前（6个月内）
-    else if (months < 6) {
-        return `${months}个月前`
-    }
+}
+
+// 格式化日期 - 完整格式（用于预览页面）
+function formatDateFull(dateString) {
+    if (!dateString) return '-'
+    
+    const date = new Date(dateString)
+    const year = date.getFullYear()
+    const month = date.getMonth() + 1
+    const day = date.getDate()
+    const hour = String(date.getHours()).padStart(2, '0')
+    const minute = String(date.getMinutes()).padStart(2, '0')
+    
+    return `${year}年${month}月${day}日 ${hour}:${minute}`
 }
 
 // 生成时间戳
@@ -1873,7 +1889,25 @@ function handlePreview(row) {
     } else if (['mp4', 'avi', 'mov', 'wmv', 'flv', 'mkv', 'webm'].includes(ext)) {
         // 视频预览
         console.log('打开视频预览')
-        showVideoPreview.value = true
+        
+        // 检查浏览器是否支持该格式
+        if (['wmv', 'avi', 'flv'].includes(ext)) {
+            ElMessageBox.confirm(
+                `${ext.toUpperCase()} 格式在浏览器中可能无法正常播放，建议下载到本地使用专业播放器观看。是否继续尝试在线预览？`,
+                '格式兼容性提示',
+                {
+                    confirmButtonText: '继续预览',
+                    cancelButtonText: '取消',
+                    type: 'warning'
+                }
+            ).then(() => {
+                showVideoPreview.value = true
+            }).catch(() => {
+                // 用户取消，什么也不做
+            })
+        } else {
+            showVideoPreview.value = true
+        }
     } else if (['mp3', 'wav', 'ogg', 'aac', 'flac', 'm4a', 'wma'].includes(ext)) {
         // 音频预览
         console.log('打开音频预览')
@@ -1914,6 +1948,31 @@ function handleDocumentLoad() {
     documentLoading.value = false
 }
 
+// 视频加载错误处理
+function handleVideoError(e) {
+    // 如果是关闭预览导致的错误，或者视频预览对话框没有打开，不显示提示
+    if (isClosingPreview.value || !showVideoPreview.value) {
+        return
+    }
+    
+    console.error('视频加载失败:', e)
+    const ext = previewFile.value?.name.split('.').pop().toLowerCase()
+    if (['wmv', 'avi', 'flv'].includes(ext)) {
+        ElMessageBox.alert(
+            `${ext.toUpperCase()} 格式在当前浏览器中无法播放。建议：<br/>
+            1. 下载到本地使用专业播放器（如VLC、PotPlayer）观看<br/>
+            2. 或者将视频转换为MP4格式后再上传`,
+            '视频无法播放',
+            {
+                dangerouslyUseHTMLString: true,
+                confirmButtonText: '知道了'
+            }
+        )
+    } else {
+        ElMessage.error('视频加载失败，请稍后重试或下载到本地观看')
+    }
+}
+
 // 切换全屏
 function toggleFullscreen() {
     isFullscreen.value = !isFullscreen.value
@@ -1921,11 +1980,27 @@ function toggleFullscreen() {
 
 // 关闭预览
 function closePreview() {
-    // 如果是音频预览，暂停播放
+    // 设置关闭标志，防止触发错误提示
+    isClosingPreview.value = true
+    
+    // 如果是视频预览，暂停播放并重置
+    if (videoPlayerRef.value) {
+        videoPlayerRef.value.pause()
+        videoPlayerRef.value.currentTime = 0
+        videoPlayerRef.value.src = '' // 清空视频源，彻底停止加载
+    }
+    
+    // 如果是音频预览，暂停播放并重置
     if (audioPlayerRef.value) {
         audioPlayerRef.value.pause()
         audioPlayerRef.value.currentTime = 0
+        audioPlayerRef.value.src = '' // 清空音频源，彻底停止加载
     }
+    
+    // 延迟重置标志，确保错误事件已经处理完
+    setTimeout(() => {
+        isClosingPreview.value = false
+    }, 100)
 
     previewUrl.value = ''
     previewFile.value = null
@@ -2344,11 +2419,6 @@ function isTextFile(item) {
     const ext = item.name.split('.').pop().toLowerCase()
     return ['txt', 'md', 'json', 'js', 'ts', 'vue', 'jsx', 'tsx', 'css', 'scss', 'less', 'html',
         'xml', 'java', 'py', 'php', 'c', 'cpp', 'h', 'go', 'rs', 'sql', 'sh', 'yaml', 'yml'].includes(ext)
-}
-
-// 视频加载错误处理
-function handleVideoError(e) {
-    console.error('视频加载失败:', e)
 }
 
 // 卡片点击处理
